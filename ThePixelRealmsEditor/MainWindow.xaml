@@ -1,0 +1,135 @@
+﻿<Window x:Class="ThePixelRealmsEditor.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="The Pixel Realms Editor"
+        Width="1100"
+        Height="650"
+        MinWidth="900"
+        MinHeight="550"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource BackgroundBrush}">
+
+    <Grid>
+
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Main content -->
+        <Grid>
+
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="2*"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <!-- Title -->
+            <StackPanel Grid.Row="0"
+                        VerticalAlignment="Bottom"
+                        HorizontalAlignment="Center"
+                        Margin="0,0,0,35">
+
+                <TextBlock Text="THE PIXEL REALMS"
+                           FontSize="34"
+                           FontWeight="Bold"
+                           HorizontalAlignment="Center"/>
+
+                <TextBlock Text="EDITOR"
+                           Foreground="{StaticResource AccentBrush}"
+                           FontSize="18"
+                           FontWeight="SemiBold"
+                           HorizontalAlignment="Center"
+                           Margin="0,5,0,0"/>
+
+            </StackPanel>
+
+            <!-- Editor selection -->
+            <Grid Grid.Row="1"
+                  Width="760"
+                  HorizontalAlignment="Center">
+
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="35"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Map editor -->
+                <Button Grid.Column="0"
+                        Click="MapEditorButton_Click"
+                        Padding="25">
+
+                    <StackPanel>
+
+                        <TextBlock Text="▦"
+                                   FontSize="52"
+                                   Foreground="{StaticResource AccentBrush}"
+                                   HorizontalAlignment="Center"/>
+
+                        <TextBlock Text="PÁLYASZERKESZTŐ"
+                                   FontSize="21"
+                                   FontWeight="Bold"
+                                   HorizontalAlignment="Center"
+                                   Margin="0,20,0,8"/>
+
+                        <TextBlock Text="Pályák, objektumok és rétegek szerkesztése"
+                                   Foreground="{StaticResource MutedTextBrush}"
+                                   FontSize="13"
+                                   TextAlignment="Center"
+                                   TextWrapping="Wrap"/>
+
+                    </StackPanel>
+
+                </Button>
+
+                <!-- Entity editor -->
+                <Button Grid.Column="2"
+                        Click="EntityEditorButton_Click"
+                        Padding="25">
+
+                    <StackPanel>
+
+                        <TextBlock Text="♟"
+                                   FontSize="52"
+                                   Foreground="{StaticResource AccentBrush}"
+                                   HorizontalAlignment="Center"/>
+
+                        <TextBlock Text="ENTITÁSSZERKESZTŐ"
+                                   FontSize="21"
+                                   FontWeight="Bold"
+                                   HorizontalAlignment="Center"
+                                   Margin="0,20,0,8"/>
+
+                        <TextBlock Text="Karakterek, ellenfelek és entitások szerkesztése"
+                                   Foreground="{StaticResource MutedTextBrush}"
+                                   FontSize="13"
+                                   TextAlignment="Center"
+                                   TextWrapping="Wrap"/>
+
+                    </StackPanel>
+
+                </Button>
+
+            </Grid>
+
+        </Grid>
+
+        <!-- Footer -->
+        <Border Grid.Row="1"
+                Background="#0D0F13"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,1,0,0"
+                Padding="15,8">
+
+            <TextBlock Text="The Pixel Realms Editor"
+                       Foreground="{StaticResource MutedTextBrush}"
+                       FontSize="11"
+                       HorizontalAlignment="Center"/>
+
+        </Border>
+
+    </Grid>
+
+</Window>

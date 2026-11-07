@@ -1,0 +1,61 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="Assets\GameBorder\Border_bottomleft.png" />
+    <None Remove="Assets\GameBorder\Border_bottomright.png" />
+    <None Remove="Assets\GameBorder\Border_topleft.png" />
+    <None Remove="Assets\GameBorder\Border_topright.png" />
+    <None Remove="Assets\GameBorder\Hud_border_left.png" />
+    <None Remove="Assets\GameBorder\Hud_border_middle.png" />
+    <None Remove="Assets\GameBorder\Hud_border_right.png" />
+    <None Remove="Assets\GameBorder\Line_bottom.png" />
+    <None Remove="Assets\GameBorder\Line_left.png" />
+    <None Remove="Assets\GameBorder\Line_right.png" />
+    <None Remove="Assets\GameBorder\Line_top.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\GameBorder\Border_bottomleft.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\GameBorder\Border_bottomright.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\GameBorder\Border_topleft.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\GameBorder\Border_topright.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\GameBorder\Hud_border_left.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\GameBorder\Hud_border_middle.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\GameBorder\Hud_border_right.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\GameBorder\Line_bottom.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\GameBorder\Line_left.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\GameBorder\Line_right.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Resource>
+    <Resource Include="Assets\GameBorder\Line_top.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Resource>
+  </ItemGroup>
+
+</Project>
