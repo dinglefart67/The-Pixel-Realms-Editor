@@ -421,6 +421,21 @@ namespace ThePixelRealmsEditor
             RefreshActionList();
         }
 
+        // The entity dimensions are derived from every frame of every Action.
+        // Imported sprites use the same 1:16 scale as the Map Editor.
+        private void RecalculateEntitySize()
+        {
+            if (entity == null)
+                return;
+
+            var frames = entity.Actions.SelectMany(action => action.Frames).ToList();
+            int maxWidth = frames.Select(frame => frame.PixelWidth).DefaultIfEmpty(0).Max();
+            int maxHeight = frames.Select(frame => frame.PixelHeight).DefaultIfEmpty(0).Max();
+
+            entity.Stats.Width = maxWidth / 16.0;
+            entity.Stats.Height = maxHeight / 16.0;
+        }
+
         // =====================================================
         // DOCUMENTS
         // =====================================================
@@ -501,8 +516,13 @@ namespace ThePixelRealmsEditor
                 entity = loaded;
                 currentPath = dialog.FileName;
 
+                double previousWidth = entity.Stats.Width;
+                double previousHeight = entity.Stats.Height;
+                RecalculateEntitySize();
+
                 selectedActionId = IdleAction()?.Id;
-                hasUnsavedChanges = false;
+                hasUnsavedChanges = previousWidth != entity.Stats.Width ||
+                                    previousHeight != entity.Stats.Height;
 
                 undoStack.Clear();
                 redoStack.Clear();
@@ -683,6 +703,7 @@ namespace ThePixelRealmsEditor
 
             entity.Actions.Add(window.EditedAction);
             selectedActionId = window.EditedAction.Id;
+            RecalculateEntitySize();
 
             CommitHistory(before);
             RefreshUi();
@@ -711,6 +732,7 @@ namespace ThePixelRealmsEditor
 
             entity.Actions[index] = window.EditedAction;
             selectedActionId = window.EditedAction.Id;
+            RecalculateEntitySize();
 
             CommitHistory(before);
 
@@ -752,6 +774,7 @@ namespace ThePixelRealmsEditor
 
             entity.Actions.Remove(action);
             selectedActionId = IdleAction()?.Id;
+            RecalculateEntitySize();
 
             CommitHistory(before);
 
@@ -1016,11 +1039,11 @@ namespace ThePixelRealmsEditor
 
             AddHeader("ÁLTALÁNOS");
 
-            AddNumber("Width", "Szélesség",
-                s.Width, (p, v) => p.Width = v);
+            AddNumber("Width", "Szélesség (automatikus)",
+                s.Width, (p, v) => p.Width = v, readOnly: true);
 
-            AddNumber("Height", "Magasság",
-                s.Height, (p, v) => p.Height = v);
+            AddNumber("Height", "Magasság (automatikus)",
+                s.Height, (p, v) => p.Height = v, readOnly: true);
 
             AddNumber("WalkSpeed", "Mozgási sebesség",
                 s.WalkSpeed, (p, v) => p.WalkSpeed = v);
@@ -1151,7 +1174,8 @@ namespace ThePixelRealmsEditor
             string key,
             string label,
             double value,
-            Action<EntityStats, double> setter)
+            Action<EntityStats, double> setter,
+            bool readOnly = false)
         {
             AddLabel(label);
 
@@ -1159,11 +1183,21 @@ namespace ThePixelRealmsEditor
             {
                 Text = value.ToString(
                     "0.###", CultureInfo.CurrentCulture),
-                Margin = new Thickness(0, 0, 0, 12)
+                Margin = new Thickness(0, 0, 0, 12),
+                IsReadOnly = readOnly,
+                Focusable = !readOnly
             };
 
+            if (readOnly)
+            {
+                box.Background = new SolidColorBrush(Color.FromRgb(32, 36, 44));
+                box.Foreground = (Brush)FindResource("AccentBrush");
+                box.ToolTip = "Az összes Action legnagyobb PNG képkockamérete / 16.";
+            }
+
             InspectorFields.Children.Add(box);
-            numberFields[key] = (box, setter);
+            if (!readOnly)
+                numberFields[key] = (box, setter);
         }
 
         private void AddText(
@@ -1316,6 +1350,7 @@ namespace ThePixelRealmsEditor
         {
             entity = state.Document.DeepClone();
             selectedActionId = state.SelectedActionId;
+            RecalculateEntitySize();
 
             hasUnsavedChanges = true;
 
