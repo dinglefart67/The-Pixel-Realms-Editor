@@ -3,6 +3,7 @@ using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -49,24 +50,51 @@ namespace ThePixelRealmsEditor
             public Guid? SelectedActionId { get; init; }
         }
 
+        // =====================================================
+        // ANIMATION PLAYER
+        // =====================================================
+
+        private readonly DispatcherTimer animationTimer;
+        private readonly Stopwatch animationClock = new();
+
+        private double lastClockSeconds;
+        private double frameElapsed;
+        private double actionElapsed;
+        private int frameIndex;
+
+        private Guid? playingActionId;
+        private bool previewPaused;
+        private bool facingRight = true;
+
+        private static readonly double[] IdleDurations =
+        {
+            0.5, 0.05, 0.5, 0.05
+        };
+
+        private const double WalkingPreviewSeconds = 5.0;
+        private const double WalkingFrameSeconds = 0.08;
+        private const double MeleeFrameSeconds = 0.05;
+
         public EntityEditorWindow()
         {
             InitializeComponent();
 
-            try
+            ActionTypeDatabase.Load();
+
+            animationTimer = new DispatcherTimer(
+                DispatcherPriority.Render)
             {
-                ActionTypeDatabase.Load();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(
-                    $"Az Action-típusok nem tölthetők be:\n{ex.Message}",
-                    "Adatbázishiba",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Error);
-            }
+                Interval = TimeSpan.FromMilliseconds(15)
+            };
+
+            animationTimer.Tick += AnimationTimer_Tick;
+
+            animationClock.Start();
+            lastClockSeconds = animationClock.Elapsed.TotalSeconds;
+            animationTimer.Start();
 
             RefreshUi();
+            UpdateFacingDirection();
 
             Loaded += (_, _) =>
             {
@@ -75,18 +103,326 @@ namespace ThePixelRealmsEditor
 
                 initialDialogShown = true;
 
-                Dispatcher.BeginInvoke(
-                    new Action(() =>
-                    {
-                        if (entity == null)
-                            NewEntity();
-                    }),
-                    DispatcherPriority.Background);
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (entity == null)
+                        NewEntity();
+                }), DispatcherPriority.Background);
             };
         }
 
+        private EntityAction? IdleAction()
+        {
+            return entity?.Actions.FirstOrDefault(a =>
+                a.Type.Equals("Idle",
+                    StringComparison.OrdinalIgnoreCase));
+        }
+
+        private EntityAction? SelectedAction()
+        {
+            return entity?.Actions.FirstOrDefault(a =>
+                a.Id == selectedActionId);
+        }
+
+        private EntityAction? PlayingAction()
+        {
+            return entity?.Actions.FirstOrDefault(a =>
+                a.Id == playingActionId);
+        }
+
+        private static bool IsAction(
+            EntityAction? action, string name)
+        {
+            return action != null &&
+                action.Type.Equals(
+                    name, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void ResetAnimationTiming()
+        {
+            frameIndex = 0;
+            frameElapsed = 0;
+            actionElapsed = 0;
+            lastClockSeconds = animationClock.Elapsed.TotalSeconds;
+        }
+
+        private void StartIdle(bool play = true)
+        {
+            playingActionId = IdleAction()?.Id;
+            previewPaused = !play;
+
+            ResetAnimationTiming();
+            RefreshAnimationPlayer();
+        }
+
+        private void StartAction(EntityAction action)
+        {
+            if (action.Frames.Count == 0)
+            {
+                StatusText.Text =
+                    $"Az Action nem tartalmaz képkockát: {action.Type}";
+                return;
+            }
+
+            if (IsAction(action, "Idle"))
+            {
+                StartIdle();
+                selectedActionId = action.Id;
+                RefreshActionList();
+                return;
+            }
+
+            playingActionId = action.Id;
+            selectedActionId = action.Id;
+            previewPaused = false;
+
+            ResetAnimationTiming();
+            RefreshAnimationPlayer();
+            RefreshActionList();
+
+            StatusText.Text =
+                $"{action.Type} animáció elindítva.";
+        }
+
+        private void PauseAction(EntityAction action)
+        {
+            if (IsAction(action, "Idle"))
+            {
+                StartIdle(false);
+                return;
+            }
+
+            // Egy nem-Idle Action leállításakor
+            // automatikusan az Idle indul el.
+            StartIdle();
+            selectedActionId = IdleAction()?.Id;
+            RefreshActionList();
+        }
+
+        private void AnimationTimer_Tick(
+            object? sender, EventArgs e)
+        {
+            double now = animationClock.Elapsed.TotalSeconds;
+            double delta = Math.Max(
+                0, now - lastClockSeconds);
+
+            lastClockSeconds = now;
+
+            // Modal ablak, alkalmazásváltás vagy hosszabb
+            // szünet után ne ugorjon át sok képkockát.
+            delta = Math.Min(delta, 0.1);
+
+            if (previewPaused)
+                return;
+
+            EntityAction? action = PlayingAction();
+
+            if (action == null || action.Frames.Count == 0)
+                return;
+
+            frameElapsed += delta;
+            actionElapsed += delta;
+
+            bool idle = IsAction(action, "Idle");
+            bool walking = IsAction(action, "Walking");
+            bool melee = IsAction(action, "Melee");
+
+            if (walking &&
+                actionElapsed >= WalkingPreviewSeconds)
+            {
+                ReturnToIdleAfterAction();
+                return;
+            }
+
+            int transitions = 0;
+
+            while (transitions < 100)
+            {
+                double duration =
+                    GetFrameDuration(action, frameIndex);
+
+                if (frameElapsed < duration)
+                    break;
+
+                frameElapsed -= duration;
+                frameIndex++;
+                transitions++;
+
+                if (frameIndex >= action.Frames.Count)
+                {
+                    if (idle || walking)
+                    {
+                        frameIndex = 0;
+                    }
+                    else
+                    {
+                        // A Melee és az egyéni Actionök
+                        // egyszer futnak le.
+                        ReturnToIdleAfterAction();
+                        return;
+                    }
+                }
+            }
+
+            RefreshAnimationFrame();
+        }
+
+        private static double GetFrameDuration(
+            EntityAction action, int index)
+        {
+            if (IsAction(action, "Idle"))
+            {
+                return IdleDurations[
+                    index % IdleDurations.Length];
+            }
+
+            if (IsAction(action, "Walking"))
+                return WalkingFrameSeconds;
+
+            if (IsAction(action, "Melee"))
+                return MeleeFrameSeconds;
+
+            return Math.Max(
+                0.001, action.FrameDuration);
+        }
+
+        private void ReturnToIdleAfterAction()
+        {
+            StartIdle();
+
+            selectedActionId = IdleAction()?.Id;
+            RefreshActionList();
+        }
+
+        private void RefreshAnimationFrame()
+        {
+            EntityAction? action = PlayingAction();
+
+            if (action == null ||
+                action.Frames.Count == 0)
+            {
+                PreviewImage.Source = null;
+                PreviewPlaceholder.Visibility =
+                    Visibility.Visible;
+                return;
+            }
+
+            int safeIndex = Math.Clamp(
+                frameIndex, 0, action.Frames.Count - 1);
+
+            var frame = action.Frames[safeIndex];
+
+            PreviewImage.Source =
+                EntityStorage.LoadFrame(
+                    frame.ImageFileName);
+
+            PreviewPlaceholder.Visibility =
+                PreviewImage.Source == null
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+
+            PreviewFrameCountText.Text =
+                $"Frame {safeIndex + 1}/{action.Frames.Count} " +
+                $"• {action.Type}";
+        }
+
+        private void RefreshAnimationPlayer()
+        {
+            EntityAction? action = PlayingAction();
+
+            PreviewActionTitle.Text =
+                action?.Type.ToUpperInvariant()
+                ?? "ELŐNÉZET";
+
+            PreviewPlaybackStatus.Text = previewPaused
+                ? "Szüneteltetve – Idle első képkocka"
+                : action == null
+                    ? "Nincs animáció"
+                    : IsAction(action, "Walking")
+                        ? $"Walking – {Math.Max(0, WalkingPreviewSeconds - actionElapsed):0.0} mp van hátra"
+                        : "Animáció lejátszása";
+
+            PreviewPlayPauseButton.Content =
+                previewPaused
+                    ? "▶ Start"
+                    : "⏸ Pause";
+
+            PreviewEditButton.IsEnabled =
+                SelectedAction() != null;
+
+            RefreshAnimationFrame();
+        }
+
+        private void PreviewPlayPause_Click(
+            object sender, RoutedEventArgs e)
+        {
+            if (previewPaused)
+                StartIdle();
+            else
+                StartIdle(false);
+
+            RefreshActionList();
+        }
+
+        private void FaceLeft_Click(
+            object sender, RoutedEventArgs e)
+        {
+            facingRight = false;
+            UpdateFacingDirection();
+        }
+
+        private void FaceRight_Click(
+            object sender, RoutedEventArgs e)
+        {
+            facingRight = true;
+            UpdateFacingDirection();
+        }
+
+        private void UpdateFacingDirection()
+        {
+            PreviewDirectionTransform.ScaleX =
+                facingRight ? 1 : -1;
+
+            FacingDirectionText.Text =
+                facingRight ? "Jobbra néz" : "Balra néz";
+
+            FaceLeftButton.Opacity =
+                facingRight ? 0.55 : 1.0;
+
+            FaceRightButton.Opacity =
+                facingRight ? 1.0 : 0.55;
+        }
+
+        private void ActionPlaybackButton_Click(
+            object sender, RoutedEventArgs e)
+        {
+            if (sender is not Button button ||
+                button.Tag is not Guid id ||
+                entity == null)
+                return;
+
+            EntityAction? action =
+                entity.Actions.FirstOrDefault(a =>
+                    a.Id == id);
+
+            if (action == null)
+                return;
+
+            bool currentlyPlaying =
+                !previewPaused &&
+                playingActionId == action.Id;
+
+            if (currentlyPlaying)
+                PauseAction(action);
+            else
+                StartAction(action);
+
+            RefreshAnimationPlayer();
+            RefreshActionList();
+        }
+
         // =====================================================
-        // DOCUMENT
+        // DOCUMENTS
         // =====================================================
 
         private bool ConfirmDiscard()
@@ -96,10 +432,11 @@ namespace ThePixelRealmsEditor
 
             return MessageBox.Show(
                 "Az entitás nem mentett módosításokat tartalmaz.\n" +
-                "Biztosan folytatod mentés nélkül?",
+                "Folytatod mentés nélkül?",
                 "Nem mentett változtatások",
                 MessageBoxButton.YesNo,
-                MessageBoxImage.Warning) == MessageBoxResult.Yes;
+                MessageBoxImage.Warning)
+                == MessageBoxResult.Yes;
         }
 
         private void NewEntity()
@@ -115,31 +452,29 @@ namespace ThePixelRealmsEditor
             if (string.IsNullOrWhiteSpace(name))
                 return;
 
-            var newEntity = new EntityDefinition
-            {
-                Name = name
-            };
-
-            var idle = new EntityAction
+            EntityAction idle = new()
             {
                 Type = "Idle",
                 FrameDuration = 0.5
             };
 
-            newEntity.Actions.Add(idle);
+            entity = new EntityDefinition
+            {
+                Name = name,
+                Actions = new List<EntityAction> { idle }
+            };
 
-            entity = newEntity;
             currentPath = null;
             selectedActionId = idle.Id;
+            hasUnsavedChanges = true;
 
             undoStack.Clear();
             redoStack.Clear();
-            hasUnsavedChanges = true;
 
+            StartIdle();
             RefreshUi();
-            SetStatus($"Új entitás: {name}");
 
-            // Az Idle létrehozás után rögtön megnyílik.
+            // Első létrehozáskor kötelező Idle editor.
             EditAction(idle);
         }
 
@@ -148,12 +483,10 @@ namespace ThePixelRealmsEditor
             if (!ConfirmDiscard())
                 return;
 
-            var dialog = new OpenFileDialog
+            OpenFileDialog dialog = new()
             {
                 Title = "Entitás megnyitása",
-                Filter =
-                    "The Pixel Realms entitás (*.tprentity)|*.tprentity|" +
-                    "JSON (*.json)|*.json",
+                Filter = "The Pixel Realms entitás (*.tprentity)|*.tprentity|JSON (*.json)|*.json",
                 CheckFileExists = true
             };
 
@@ -168,21 +501,16 @@ namespace ThePixelRealmsEditor
                 entity = loaded;
                 currentPath = dialog.FileName;
 
-                selectedActionId = loaded.Actions
-                    .First(a => a.Type.Equals(
-                        "Idle",
-                        StringComparison.OrdinalIgnoreCase)).Id;
+                selectedActionId = IdleAction()?.Id;
+                hasUnsavedChanges = false;
 
                 undoStack.Clear();
                 redoStack.Clear();
-                hasUnsavedChanges = false;
 
+                StartIdle();
                 RefreshUi();
-                SetStatus(
-                    $"Entitás megnyitva: " +
-                    $"{Path.GetFileName(dialog.FileName)}");
 
-                int missing = loaded.Actions
+                int missing = entity.Actions
                     .SelectMany(a => a.Frames)
                     .Count(f => EntityStorage.LoadFrame(
                         f.ImageFileName) == null);
@@ -190,20 +518,21 @@ namespace ThePixelRealmsEditor
                 if (missing > 0)
                 {
                     MessageBox.Show(
-                        $"{missing} képkocka képfájlja hiányzik " +
-                        "az Editor helyi Assets könyvtárából.\n\n" +
-                        "Az entitás megnyílt, de ezeket a " +
-                        "képeket újra kell importálni.",
+                        $"{missing} PNG nem található " +
+                        "az Editor helyi Assets mappájában.",
                         "Hiányzó képek",
                         MessageBoxButton.OK,
                         MessageBoxImage.Warning);
                 }
+
+                StatusText.Text =
+                    $"Megnyitva: {Path.GetFileName(currentPath)}";
             }
             catch (Exception ex)
             {
                 MessageBox.Show(
-                    $"Az entitás nem nyitható meg:\n{ex.Message}",
-                    "Megnyitási hiba",
+                    $"Megnyitási hiba:\n{ex.Message}",
+                    "Hiba",
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
             }
@@ -212,48 +541,10 @@ namespace ThePixelRealmsEditor
         private void SaveEntity(bool saveAs)
         {
             if (entity == null)
-            {
-                MessageBox.Show(
-                    "Előbb hozz létre vagy nyiss meg egy entitást.",
-                    "Nincs entitás",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
                 return;
-            }
 
             if (!ApplyInspectorChanges())
                 return;
-
-            EntityAction? idle = entity.Actions
-                .FirstOrDefault(a => a.Type.Equals(
-                    "Idle",
-                    StringComparison.OrdinalIgnoreCase));
-
-            if (idle == null || idle.Frames.Count == 0)
-            {
-                MessageBox.Show(
-                    "A mentéshez legalább egy Idle képkocka szükséges.",
-                    "Hiányzó Idle",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning);
-                return;
-            }
-
-            int missing = entity.Actions
-                .SelectMany(a => a.Frames)
-                .Count(f => EntityStorage.LoadFrame(
-                    f.ImageFileName) == null);
-
-            if (missing > 0)
-            {
-                MessageBox.Show(
-                    "A mentés előtt pótold a hiányzó " +
-                    "animációs képeket.",
-                    "Hiányzó PNG",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning);
-                return;
-            }
 
             string? path = currentPath;
 
@@ -263,17 +554,15 @@ namespace ThePixelRealmsEditor
                     entity.Name.Split(
                         Path.GetInvalidFileNameChars()));
 
-                if (string.IsNullOrWhiteSpace(safeName))
-                    safeName = "Entity";
-
-                var dialog = new SaveFileDialog
+                SaveFileDialog dialog = new()
                 {
                     Title = "Entitás mentése",
-                    Filter =
-                        "The Pixel Realms entitás (*.tprentity)|*.tprentity",
+                    Filter = "The Pixel Realms entitás (*.tprentity)|*.tprentity",
                     DefaultExt = ".tprentity",
                     AddExtension = true,
-                    FileName = safeName
+                    FileName = string.IsNullOrWhiteSpace(safeName)
+                        ? "Entity"
+                        : safeName
                 };
 
                 if (dialog.ShowDialog(this) != true)
@@ -285,18 +574,20 @@ namespace ThePixelRealmsEditor
             try
             {
                 EntityStorage.Save(entity, path!);
+
                 currentPath = path;
                 hasUnsavedChanges = false;
 
                 RefreshWindowTitle();
-                SetStatus(
-                    $"Entitás mentve: {Path.GetFileName(path)}");
+
+                StatusText.Text =
+                    $"Mentve: {Path.GetFileName(path)}";
             }
             catch (Exception ex)
             {
                 MessageBox.Show(
-                    $"Sikertelen mentés:\n{ex.Message}",
-                    "Mentési hiba",
+                    $"Mentési hiba:\n{ex.Message}",
+                    "Hiba",
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
             }
@@ -317,22 +608,16 @@ namespace ThePixelRealmsEditor
                 return;
 
             HistoryState before = CaptureHistory();
+
             entity.Name = name;
             CommitHistory(before);
 
             RefreshUi();
-            SetStatus($"Entitás átnevezve: {name}");
         }
 
         // =====================================================
-        // ACTIONS
+        // ACTION MANAGEMENT
         // =====================================================
-
-        private EntityAction? SelectedAction()
-        {
-            return entity?.Actions.FirstOrDefault(
-                a => a.Id == selectedActionId);
-        }
 
         private void AddAction()
         {
@@ -341,29 +626,27 @@ namespace ThePixelRealmsEditor
 
             List<string> available =
                 ActionTypeDatabase.Types
-                    .Where(type => !entity.Actions.Any(a =>
-                        a.Type.Equals(
-                            type,
+                .Where(type =>
+                    !entity.Actions.Any(a =>
+                        a.Type.Equals(type,
                             StringComparison.OrdinalIgnoreCase)))
-                    .ToList();
+                .ToList();
 
             if (available.Count == 0)
             {
                 MessageBox.Show(
-                    "Minden ismert Action-típus szerepel " +
-                    "az entitásban.\n" +
-                    "Az Actionök menüben létrehozhatsz új típust.",
-                    "Nincs új típus",
+                    "Nincs több elérhető típus.\n" +
+                    "Hozz létre egyéni Action-típust.",
+                    "Actions",
                     MessageBoxButton.OK,
                     MessageBoxImage.Information);
                 return;
             }
 
-            string? selectedType =
-                PromptActionType(available);
+            string? type = PromptActionType(available);
 
-            if (!string.IsNullOrWhiteSpace(selectedType))
-                AddActionOfType(selectedType);
+            if (!string.IsNullOrWhiteSpace(type))
+                AddActionOfType(type);
         }
 
         private void AddActionOfType(string type)
@@ -372,29 +655,23 @@ namespace ThePixelRealmsEditor
                 return;
 
             if (entity.Actions.Any(a =>
-                a.Type.Equals(
-                    type, StringComparison.OrdinalIgnoreCase)))
-            {
-                MessageBox.Show(
-                    "Ez az Action már szerepel az entitásban.",
-                    "Duplikált Action",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning);
+                a.Type.Equals(type,
+                    StringComparison.OrdinalIgnoreCase)))
                 return;
-            }
 
-            var newAction = new EntityAction
+            EntityAction action = new()
             {
                 Type = type,
-                FrameDuration =
-                    type.Equals(
-                        "Idle",
-                        StringComparison.OrdinalIgnoreCase)
+                FrameDuration = type.Equals(
+                    "Idle", StringComparison.OrdinalIgnoreCase)
                     ? 0.5
-                    : 0.08
+                    : type.Equals(
+                        "Melee", StringComparison.OrdinalIgnoreCase)
+                        ? MeleeFrameSeconds
+                        : WalkingFrameSeconds
             };
 
-            var window = new ActionFramesWindow(newAction)
+            ActionFramesWindow window = new(action)
             {
                 Owner = this
             };
@@ -409,7 +686,6 @@ namespace ThePixelRealmsEditor
 
             CommitHistory(before);
             RefreshUi();
-            SetStatus($"Action létrehozva: {type}");
         }
 
         private void EditAction(EntityAction action)
@@ -417,7 +693,7 @@ namespace ThePixelRealmsEditor
             if (entity == null)
                 return;
 
-            var window = new ActionFramesWindow(action)
+            ActionFramesWindow window = new(action)
             {
                 Owner = this
             };
@@ -425,20 +701,23 @@ namespace ThePixelRealmsEditor
             if (window.ShowDialog() != true)
                 return;
 
-            HistoryState before = CaptureHistory();
-
-            int index = entity.Actions.FindIndex(
-                a => a.Id == action.Id);
+            int index = entity.Actions.FindIndex(a =>
+                a.Id == action.Id);
 
             if (index < 0)
                 return;
+
+            HistoryState before = CaptureHistory();
 
             entity.Actions[index] = window.EditedAction;
             selectedActionId = window.EditedAction.Id;
 
             CommitHistory(before);
+
+            // Képkockák módosítása után a lejátszást
+            // biztonságosan újrakezdjük.
+            StartIdle();
             RefreshUi();
-            SetStatus($"Action mentve: {action.Type}");
         }
 
         private void DeleteAction()
@@ -451,12 +730,11 @@ namespace ThePixelRealmsEditor
             if (action == null)
                 return;
 
-            if (action.Type.Equals(
-                "Idle", StringComparison.OrdinalIgnoreCase))
+            if (IsAction(action, "Idle"))
             {
                 MessageBox.Show(
-                    "Az Idle kötelező Action, ezért nem törölhető.",
-                    "Kötelező Action",
+                    "Az Idle kötelező, ezért nem törölhető.",
+                    "Actions",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
                 return;
@@ -466,23 +744,19 @@ namespace ThePixelRealmsEditor
                 $"Törlöd ezt az Actiont: {action.Type}?",
                 "Action törlése",
                 MessageBoxButton.YesNo,
-                MessageBoxImage.Question) != MessageBoxResult.Yes)
+                MessageBoxImage.Question)
+                != MessageBoxResult.Yes)
                 return;
 
             HistoryState before = CaptureHistory();
 
             entity.Actions.Remove(action);
+            selectedActionId = IdleAction()?.Id;
 
-            selectedActionId = entity.Actions
-                .FirstOrDefault(a => a.Type.Equals(
-                    "Idle",
-                    StringComparison.OrdinalIgnoreCase))?.Id;
-
-            // A képek maradnak a tárhelyen, hogy az
-            // Undo vissza tudja állítani az Actiont.
             CommitHistory(before);
+
+            StartIdle();
             RefreshUi();
-            SetStatus($"Action törölve: {action.Type}");
         }
 
         private void AddCustomAction()
@@ -492,7 +766,7 @@ namespace ThePixelRealmsEditor
 
             string? type = PromptText(
                 "Egyéni Action-típus",
-                "Az új Action-típus neve:",
+                "Az új Action neve:",
                 "");
 
             if (string.IsNullOrWhiteSpace(type))
@@ -503,8 +777,8 @@ namespace ThePixelRealmsEditor
                 if (!ActionTypeDatabase.Add(type))
                 {
                     MessageBox.Show(
-                        "Ez az Action-típus már létezik.",
-                        "Létező típus",
+                        "Ez a típus már létezik.",
+                        "Actions",
                         MessageBoxButton.OK,
                         MessageBoxImage.Warning);
                     return;
@@ -515,41 +789,151 @@ namespace ThePixelRealmsEditor
             catch (Exception ex)
             {
                 MessageBox.Show(
-                    $"A típus mentése sikertelen:\n{ex.Message}",
-                    "Mentési hiba",
+                    ex.Message, "Hiba",
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
             }
         }
 
         // =====================================================
-        // UI
+        // ACTION LIST
         // =====================================================
 
-        private void RefreshUi()
+        private void RefreshActionList()
         {
             updatingUi = true;
 
             try
             {
-                EntityNameText.Text =
-                    entity?.Name ?? "Nincs megnyitott entitás";
+                ActionListBox.Items.Clear();
 
-                bool hasEntity = entity != null;
+                if (entity == null)
+                    return;
 
-                EntityKindCombo.IsEnabled = hasEntity;
-                EntityKindCombo.SelectedIndex =
-                    !hasEntity ? -1 :
-                    entity!.Kind == EntityKind.Enemy ? 0 : 1;
+                foreach (EntityAction action in entity.Actions)
+                {
+                    ListBoxItem item = new()
+                    {
+                        Tag = action.Id,
+                        Padding = new Thickness(5),
+                        Margin = new Thickness(0, 0, 0, 6),
+                        HorizontalContentAlignment =
+                            HorizontalAlignment.Stretch
+                    };
 
-                AddActionButton.IsEnabled = hasEntity;
-                ApplyInspectorButton.IsEnabled = hasEntity;
+                    Grid grid = new();
 
-                BuildInspector();
-                RefreshActionList();
-                RefreshPreview();
+                    grid.ColumnDefinitions.Add(
+                        new ColumnDefinition
+                        {
+                            Width = new GridLength(53)
+                        });
 
-                RefreshWindowTitle();
+                    grid.ColumnDefinitions.Add(
+                        new ColumnDefinition
+                        {
+                            Width = new GridLength(
+                                1, GridUnitType.Star)
+                        });
+
+                    Border imageBorder = new()
+                    {
+                        Width = 47,
+                        Height = 47,
+                        Background = Brushes.Black,
+                        BorderBrush =
+                            (Brush)FindResource("BorderBrush"),
+                        BorderThickness = new Thickness(1)
+                    };
+
+                    EntityFrame? first =
+                        action.Frames.FirstOrDefault();
+
+                    if (first != null)
+                    {
+                        Image image = new()
+                        {
+                            Source = EntityStorage.LoadFrame(
+                                first.ImageFileName),
+                            Stretch = Stretch.Uniform
+                        };
+
+                        RenderOptions.SetBitmapScalingMode(
+                            image,
+                            BitmapScalingMode.NearestNeighbor);
+
+                        imageBorder.Child = image;
+                    }
+
+                    Grid.SetColumn(imageBorder, 0);
+                    grid.Children.Add(imageBorder);
+
+                    StackPanel right = new()
+                    {
+                        Margin = new Thickness(5, 0, 0, 0)
+                    };
+
+                    right.Children.Add(new TextBlock
+                    {
+                        Text = action.Type,
+                        FontWeight = FontWeights.SemiBold,
+                        Foreground =
+                            (Brush)FindResource("TextBrush")
+                    });
+
+                    right.Children.Add(new TextBlock
+                    {
+                        Text = $"{action.Frames.Count} frame",
+                        FontSize = 10,
+                        Margin = new Thickness(0, 3, 0, 5),
+                        Foreground =
+                            (Brush)FindResource("MutedTextBrush")
+                    });
+
+                    bool active =
+                        !previewPaused &&
+                        playingActionId == action.Id;
+
+                    Button playbackButton = new()
+                    {
+                        Tag = action.Id,
+                        Content = active
+                            ? "⏸ Pause"
+                            : "▶ Start",
+                        Height = 27,
+                        Padding = new Thickness(0),
+                        FontSize = 11
+                    };
+
+                    playbackButton.Click +=
+                        ActionPlaybackButton_Click;
+
+                    right.Children.Add(playbackButton);
+
+                    Grid.SetColumn(right, 1);
+                    grid.Children.Add(right);
+
+                    item.Content = grid;
+                    ActionListBox.Items.Add(item);
+
+                    if (selectedActionId == action.Id)
+                        ActionListBox.SelectedItem = item;
+                }
+
+                if (ActionListBox.SelectedItem == null &&
+                    ActionListBox.Items.Count > 0)
+                {
+                    ActionListBox.SelectedIndex = 0;
+
+                    if (ActionListBox.SelectedItem
+                        is ListBoxItem item &&
+                        item.Tag is Guid id)
+                    {
+                        selectedActionId = id;
+                    }
+                }
+
+                UpdateActionButtons();
             }
             finally
             {
@@ -557,9 +941,52 @@ namespace ThePixelRealmsEditor
             }
         }
 
+        private void UpdateActionButtons()
+        {
+            EntityAction? action = SelectedAction();
+
+            EditActionButton.IsEnabled = action != null;
+            PreviewEditButton.IsEnabled = action != null;
+
+            DeleteActionButton.IsEnabled =
+                action != null &&
+                !IsAction(action, "Idle");
+        }
+
+        private void RefreshUi()
+        {
+            updatingUi = true;
+
+            try
+            {
+                EntityNameText.Text = entity?.Name
+                    ?? "Nincs megnyitott entitás";
+
+                EntityKindCombo.IsEnabled = entity != null;
+
+                EntityKindCombo.SelectedIndex =
+                    entity == null ? -1 :
+                    entity.Kind == EntityKind.Enemy ? 0 : 1;
+
+                AddActionButton.IsEnabled = entity != null;
+                ApplyInspectorButton.IsEnabled = entity != null;
+
+                BuildInspector();
+                RefreshWindowTitle();
+            }
+            finally
+            {
+                updatingUi = false;
+            }
+
+            RefreshActionList();
+            RefreshAnimationPlayer();
+        }
+
         private void RefreshWindowTitle()
         {
-            Title = "The Pixel Realms Editor - Entitásszerkesztő";
+            Title =
+                "The Pixel Realms Editor - Entitásszerkesztő";
 
             if (entity != null)
             {
@@ -570,167 +997,6 @@ namespace ThePixelRealmsEditor
             }
         }
 
-        private void RefreshActionList()
-        {
-            ActionListBox.Items.Clear();
-
-            if (entity == null)
-            {
-                EditActionButton.IsEnabled = false;
-                DeleteActionButton.IsEnabled = false;
-                return;
-            }
-
-            foreach (EntityAction action in entity.Actions)
-            {
-                var item = new ListBoxItem
-                {
-                    Tag = action.Id,
-                    Padding = new Thickness(6),
-                    Margin = new Thickness(0, 0, 0, 5),
-                    HorizontalContentAlignment =
-                        HorizontalAlignment.Stretch
-                };
-
-                var layout = new Grid();
-                layout.ColumnDefinitions.Add(
-                    new ColumnDefinition
-                    {
-                        Width = new GridLength(55)
-                    });
-                layout.ColumnDefinitions.Add(
-                    new ColumnDefinition
-                    {
-                        Width = new GridLength(
-                            1, GridUnitType.Star)
-                    });
-
-                var imageBorder = new Border
-                {
-                    Width = 48,
-                    Height = 48,
-                    Background = Brushes.Black,
-                    BorderBrush =
-                        (Brush)FindResource("BorderBrush"),
-                    BorderThickness = new Thickness(1)
-                };
-
-                var firstFrame = action.Frames.FirstOrDefault();
-
-                if (firstFrame != null)
-                {
-                    var image = new Image
-                    {
-                        Source = EntityStorage.LoadFrame(
-                            firstFrame.ImageFileName),
-                        Stretch = Stretch.Uniform
-                    };
-
-                    RenderOptions.SetBitmapScalingMode(
-                        image, BitmapScalingMode.NearestNeighbor);
-
-                    imageBorder.Child = image;
-                }
-
-                Grid.SetColumn(imageBorder, 0);
-                layout.Children.Add(imageBorder);
-
-                var textPanel = new StackPanel
-                {
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(7, 0, 0, 0)
-                };
-
-                textPanel.Children.Add(new TextBlock
-                {
-                    Text = action.Type,
-                    FontWeight = FontWeights.SemiBold,
-                    Foreground =
-                        (Brush)FindResource("TextBrush")
-                });
-
-                textPanel.Children.Add(new TextBlock
-                {
-                    Text = $"{action.Frames.Count} képkocka",
-                    FontSize = 11,
-                    Margin = new Thickness(0, 4, 0, 0),
-                    Foreground =
-                        (Brush)FindResource("MutedTextBrush")
-                });
-
-                Grid.SetColumn(textPanel, 1);
-                layout.Children.Add(textPanel);
-
-                item.Content = layout;
-                ActionListBox.Items.Add(item);
-
-                if (action.Id == selectedActionId)
-                    ActionListBox.SelectedItem = item;
-            }
-
-            if (ActionListBox.SelectedItem == null &&
-                ActionListBox.Items.Count > 0)
-            {
-                ActionListBox.SelectedIndex = 0;
-
-                if (ActionListBox.SelectedItem is ListBoxItem item &&
-                    item.Tag is Guid id)
-                {
-                    selectedActionId = id;
-                }
-            }
-
-            UpdateActionButtons();
-        }
-
-        private void RefreshPreview()
-        {
-            EntityAction? action = SelectedAction();
-
-            PreviewActionTitle.Text = action == null
-                ? "ELŐNÉZET"
-                : action.Type.ToUpperInvariant();
-
-            PreviewFrameCountText.Text = action == null
-                ? "0 képkocka"
-                : $"{action.Frames.Count} képkocka • " +
-                  $"{action.FrameDuration:0.###} mp/képkocka";
-
-            var firstFrame = action?.Frames.FirstOrDefault();
-
-            var image = firstFrame == null
-                ? null
-                : EntityStorage.LoadFrame(
-                    firstFrame.ImageFileName);
-
-            PreviewImage.Source = image;
-            PreviewPlaceholder.Visibility =
-                image == null
-                    ? Visibility.Visible
-                    : Visibility.Collapsed;
-
-            PreviewEditButton.IsEnabled = action != null;
-            UpdateActionButtons();
-        }
-
-        private void UpdateActionButtons()
-        {
-            EntityAction? action = SelectedAction();
-
-            EditActionButton.IsEnabled = action != null;
-
-            DeleteActionButton.IsEnabled =
-                action != null &&
-                !action.Type.Equals(
-                    "Idle",
-                    StringComparison.OrdinalIgnoreCase);
-        }
-
-        private void SetStatus(string message)
-        {
-            StatusText.Text = message;
-        }
-
         // =====================================================
         // INSPECTOR
         // =====================================================
@@ -738,6 +1004,7 @@ namespace ThePixelRealmsEditor
         private void BuildInspector()
         {
             InspectorFields.Children.Clear();
+
             numberFields.Clear();
             boolFields.Clear();
             textFields.Clear();
@@ -747,7 +1014,7 @@ namespace ThePixelRealmsEditor
 
             EntityStats s = entity.Stats;
 
-            AddInspectorHeader("ÁLTALÁNOS");
+            AddHeader("ÁLTALÁNOS");
 
             AddNumber("Width", "Szélesség",
                 s.Width, (p, v) => p.Width = v);
@@ -758,78 +1025,93 @@ namespace ThePixelRealmsEditor
             AddNumber("WalkSpeed", "Mozgási sebesség",
                 s.WalkSpeed, (p, v) => p.WalkSpeed = v);
 
-            AddNumber("PatrolWaitTime", "Járőr várakozás (mp)",
+            AddNumber("PatrolWaitTime",
+                "Járőr várakozás (mp)",
                 s.PatrolWaitTime,
                 (p, v) => p.PatrolWaitTime = v);
 
             if (entity.Kind == EntityKind.Enemy)
             {
-                AddInspectorHeader("ELLENFÉL – ALAPÉRTÉKEK");
+                AddHeader("ELLENFÉL");
 
                 AddNumber("MaxHp", "Maximum HP",
                     s.MaxHp, (p, v) => p.MaxHp = v);
 
                 AddNumber("AggroSpeed", "Aggro sebesség",
-                    s.AggroSpeed, (p, v) => p.AggroSpeed = v);
+                    s.AggroSpeed,
+                    (p, v) => p.AggroSpeed = v);
 
                 AddNumber("AggroRange", "Aggro távolság",
-                    s.AggroRange, (p, v) => p.AggroRange = v);
+                    s.AggroRange,
+                    (p, v) => p.AggroRange = v);
 
                 AddNumber("ContactDamage", "Sebzés",
                     s.ContactDamage,
                     (p, v) => p.ContactDamage = v);
 
-                AddNumber("DamageCooldown", "Sebzési cooldown (mp)",
+                AddNumber("DamageCooldown",
+                    "Sebzési cooldown",
                     s.DamageCooldown,
                     (p, v) => p.DamageCooldown = v);
 
-                AddNumber("AttackRange", "Támadási távolság",
+                AddNumber("AttackRange",
+                    "Támadási távolság",
                     s.AttackRange,
                     (p, v) => p.AttackRange = v);
 
-                AddNumber("StopDistance", "Megállási távolság",
+                AddNumber("StopDistance",
+                    "Megállási távolság",
                     s.StopDistance,
                     (p, v) => p.StopDistance = v);
 
-                AddNumber("AggroShareRadius", "Aggro-megosztási sugár",
+                AddNumber("AggroShareRadius",
+                    "Aggro-megosztási sugár",
                     s.AggroShareRadius,
                     (p, v) => p.AggroShareRadius = v);
 
-                AddNumber("HpBarWidth", "HP-sáv szélessége",
+                AddNumber("HpBarWidth",
+                    "HP-sáv szélessége",
                     s.HpBarWidth,
                     (p, v) => p.HpBarWidth = v);
 
-                AddNumber("MeleeCooldown", "Melee cooldown (mp)",
+                AddNumber("MeleeCooldown",
+                    "Melee cooldown",
                     s.MeleeCooldown,
                     (p, v) => p.MeleeCooldown = v);
 
-                AddNumber("FlySpeed", "Repülési sebesség",
+                AddNumber("FlySpeed",
+                    "Repülési sebesség",
                     s.FlySpeed,
                     (p, v) => p.FlySpeed = v);
 
-                AddInspectorHeader("ELLENFÉL – KAPCSOLÓK");
+                AddHeader("ELLENFÉL – KAPCSOLÓK");
 
-                AddBoolean("AggroOnSight", "Automatikus aggro",
+                AddBool("AggroOnSight",
+                    "Automatikus aggro",
                     s.AggroOnSight,
                     (p, v) => p.AggroOnSight = v);
 
-                AddBoolean("IgnoresGravity", "Gravitáció figyelmen kívül",
+                AddBool("IgnoresGravity",
+                    "Gravitáció figyelmen kívül",
                     s.IgnoresGravity,
                     (p, v) => p.IgnoresGravity = v);
 
-                AddBoolean("CountsForKill", "Beszámít a kill számlálóba",
+                AddBool("CountsForKill",
+                    "Beszámít a kill számlálóba",
                     s.CountsForKill,
                     (p, v) => p.CountsForKill = v);
             }
             else
             {
-                AddInspectorHeader("NPC");
+                AddHeader("NPC");
 
-                AddText("DisplayName", "Megjelenített név",
+                AddText("DisplayName",
+                    "Megjelenített név",
                     s.DisplayName,
                     (p, v) => p.DisplayName = v);
 
-                AddText("DialogueFile", "Dialógusfájl",
+                AddText("DialogueFile",
+                    "Dialógusfájl",
                     s.DialogueFile,
                     (p, v) => p.DialogueFile = v);
 
@@ -840,7 +1122,7 @@ namespace ThePixelRealmsEditor
             }
         }
 
-        private void AddInspectorHeader(string title)
+        private void AddHeader(string title)
         {
             InspectorFields.Children.Add(new TextBlock
             {
@@ -853,11 +1135,11 @@ namespace ThePixelRealmsEditor
             });
         }
 
-        private void AddFieldLabel(string label)
+        private void AddLabel(string title)
         {
             InspectorFields.Children.Add(new TextBlock
             {
-                Text = label,
+                Text = title,
                 FontSize = 11,
                 Foreground =
                     (Brush)FindResource("MutedTextBrush"),
@@ -871,9 +1153,9 @@ namespace ThePixelRealmsEditor
             double value,
             Action<EntityStats, double> setter)
         {
-            AddFieldLabel(label);
+            AddLabel(label);
 
-            var box = new TextBox
+            TextBox box = new()
             {
                 Text = value.ToString(
                     "0.###", CultureInfo.CurrentCulture),
@@ -890,9 +1172,9 @@ namespace ThePixelRealmsEditor
             string value,
             Action<EntityStats, string> setter)
         {
-            AddFieldLabel(label);
+            AddLabel(label);
 
-            var box = new TextBox
+            TextBox box = new()
             {
                 Text = value,
                 Margin = new Thickness(0, 0, 0, 12)
@@ -902,13 +1184,13 @@ namespace ThePixelRealmsEditor
             textFields[key] = (box, setter);
         }
 
-        private void AddBoolean(
+        private void AddBool(
             string key,
             string label,
             bool value,
             Action<EntityStats, bool> setter)
         {
-            var check = new CheckBox
+            CheckBox check = new()
             {
                 Content = label,
                 IsChecked = value,
@@ -921,49 +1203,44 @@ namespace ThePixelRealmsEditor
             boolFields[key] = (check, setter);
         }
 
-        private static bool TryReadNumber(
-            string value,
-            out double number)
-        {
-            if (double.TryParse(
-                value, NumberStyles.Float,
-                CultureInfo.CurrentCulture, out number))
-                return true;
-
-            return double.TryParse(
-                value, NumberStyles.Float,
-                CultureInfo.InvariantCulture, out number);
-        }
-
         private bool ApplyInspectorChanges()
         {
             if (entity == null)
                 return false;
 
-            var values = new Dictionary<string, double>();
+            Dictionary<string, double> values = new();
 
             foreach (var field in numberFields)
             {
-                string key = field.Key;
                 string input = field.Value.Control.Text;
 
-                bool valid = TryReadNumber(
-                    input, out double number);
+                bool valid = double.TryParse(
+                    input,
+                    NumberStyles.Float,
+                    CultureInfo.CurrentCulture,
+                    out double number);
 
-                bool mustBePositive =
-                    key == "Width" ||
-                    key == "Height" ||
-                    key == "MaxHp";
+                if (!valid)
+                {
+                    valid = double.TryParse(
+                        input,
+                        NumberStyles.Float,
+                        CultureInfo.InvariantCulture,
+                        out number);
+                }
+
+                bool positive =
+                    field.Key == "Width" ||
+                    field.Key == "Height" ||
+                    field.Key == "MaxHp";
 
                 if (!valid ||
                     !double.IsFinite(number) ||
                     number < 0 ||
-                    (mustBePositive && number <= 0))
+                    (positive && number <= 0))
                 {
                     MessageBox.Show(
-                        $"Érvénytelen számérték: {key}\n" +
-                        "A méretnek és a maximum HP-nak " +
-                        "pozitívnak kell lennie.",
+                        $"Érvénytelen érték: {field.Key}",
                         "Inspector hiba",
                         MessageBoxButton.OK,
                         MessageBoxImage.Warning);
@@ -972,7 +1249,7 @@ namespace ThePixelRealmsEditor
                     return false;
                 }
 
-                values[key] = number;
+                values[field.Key] = number;
             }
 
             HistoryState before = CaptureHistory();
@@ -980,8 +1257,7 @@ namespace ThePixelRealmsEditor
             foreach (var field in numberFields)
             {
                 field.Value.Setter(
-                    entity.Stats,
-                    values[field.Key]);
+                    entity.Stats, values[field.Key]);
             }
 
             foreach (var field in boolFields)
@@ -999,7 +1275,6 @@ namespace ThePixelRealmsEditor
             }
 
             CommitHistory(before);
-
             return true;
         }
 
@@ -1037,12 +1312,14 @@ namespace ThePixelRealmsEditor
             RefreshWindowTitle();
         }
 
-        private void RestoreHistory(HistoryState snapshot)
+        private void RestoreHistory(HistoryState state)
         {
-            entity = snapshot.Document.DeepClone();
-            selectedActionId = snapshot.SelectedActionId;
+            entity = state.Document.DeepClone();
+            selectedActionId = state.SelectedActionId;
 
             hasUnsavedChanges = true;
+
+            StartIdle();
             RefreshUi();
         }
 
@@ -1050,28 +1327,26 @@ namespace ThePixelRealmsEditor
         {
             if (entity == null || undoStack.Count == 0)
             {
-                SetStatus("Nincs visszavonható művelet.");
+                StatusText.Text =
+                    "Nincs visszavonható művelet.";
                 return;
             }
 
             redoStack.Push(CaptureHistory());
             RestoreHistory(undoStack.Pop());
-
-            SetStatus("Visszavonás – Ctrl+Z");
         }
 
         private void Redo()
         {
             if (entity == null || redoStack.Count == 0)
             {
-                SetStatus("Nincs újra végrehajtható művelet.");
+                StatusText.Text =
+                    "Nincs újra végrehajtható művelet.";
                 return;
             }
 
             undoStack.Push(CaptureHistory());
             RestoreHistory(redoStack.Pop());
-
-            SetStatus("Újra – Ctrl+Y");
         }
 
         // =====================================================
@@ -1083,7 +1358,7 @@ namespace ThePixelRealmsEditor
             string message,
             string initial)
         {
-            var dialog = new Window
+            Window dialog = new()
             {
                 Title = title,
                 Owner = this,
@@ -1096,57 +1371,55 @@ namespace ThePixelRealmsEditor
                     (Brush)FindResource("BackgroundBrush")
             };
 
-            var root = new Grid
+            Grid root = new()
             {
                 Margin = new Thickness(20)
             };
 
-            root.RowDefinitions.Add(
-                new RowDefinition
-                {
-                    Height = GridLength.Auto
-                });
+            root.RowDefinitions.Add(new RowDefinition
+            {
+                Height = GridLength.Auto
+            });
 
-            root.RowDefinitions.Add(
-                new RowDefinition
-                {
-                    Height = new GridLength(
-                        1, GridUnitType.Star)
-                });
+            root.RowDefinitions.Add(new RowDefinition
+            {
+                Height = new GridLength(
+                    1, GridUnitType.Star)
+            });
 
-            root.RowDefinitions.Add(
-                new RowDefinition
-                {
-                    Height = GridLength.Auto
-                });
+            root.RowDefinitions.Add(new RowDefinition
+            {
+                Height = GridLength.Auto
+            });
 
-            var label = new TextBlock
+            TextBlock label = new()
             {
                 Text = message,
                 Margin = new Thickness(0, 0, 0, 10)
             };
 
-            var input = new TextBox
+            TextBox input = new()
             {
                 Text = initial,
                 Height = 32,
                 VerticalAlignment = VerticalAlignment.Top
             };
 
-            var buttons = new StackPanel
+            StackPanel buttons = new()
             {
                 Orientation = Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Right
+                HorizontalAlignment =
+                    HorizontalAlignment.Right
             };
 
-            var cancel = new Button
+            Button cancel = new()
             {
                 Content = "Mégse",
                 Width = 100,
                 Margin = new Thickness(0, 0, 8, 0)
             };
 
-            var ok = new Button
+            Button ok = new()
             {
                 Content = "OK",
                 Width = 100,
@@ -1198,7 +1471,7 @@ namespace ThePixelRealmsEditor
         private string? PromptActionType(
             List<string> available)
         {
-            var dialog = new Window
+            Window dialog = new()
             {
                 Title = "Action hozzáadása",
                 Owner = this,
@@ -1211,7 +1484,7 @@ namespace ThePixelRealmsEditor
                     (Brush)FindResource("BackgroundBrush")
             };
 
-            var root = new StackPanel
+            StackPanel root = new()
             {
                 Margin = new Thickness(20)
             };
@@ -1222,7 +1495,7 @@ namespace ThePixelRealmsEditor
                 Margin = new Thickness(0, 0, 0, 12)
             });
 
-            var combo = new ComboBox
+            ComboBox combo = new()
             {
                 ItemsSource = available,
                 SelectedIndex = 0,
@@ -1231,20 +1504,21 @@ namespace ThePixelRealmsEditor
 
             root.Children.Add(combo);
 
-            var buttons = new StackPanel
+            StackPanel buttons = new()
             {
                 Orientation = Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Right
+                HorizontalAlignment =
+                    HorizontalAlignment.Right
             };
 
-            var cancel = new Button
+            Button cancel = new()
             {
                 Content = "Mégse",
                 Width = 100,
                 Margin = new Thickness(0, 0, 8, 0)
             };
 
-            var ok = new Button
+            Button ok = new()
             {
                 Content = "Hozzáadás",
                 Width = 120,
@@ -1322,7 +1596,8 @@ namespace ThePixelRealmsEditor
             if (ApplyInspectorChanges())
             {
                 BuildInspector();
-                SetStatus("Inspector értékek alkalmazva.");
+                StatusText.Text =
+                    "Inspector értékek alkalmazva.";
             }
         }
 
@@ -1346,7 +1621,9 @@ namespace ThePixelRealmsEditor
                 item.Tag is Guid id)
             {
                 selectedActionId = id;
-                RefreshPreview();
+                UpdateActionButtons();
+                // Kijelölésre nem indul el automatikusan:
+                // az Action saját Start gombja indítja.
             }
         }
 
@@ -1372,14 +1649,10 @@ namespace ThePixelRealmsEditor
 
             CommitHistory(before);
             BuildInspector();
-
-            SetStatus(
-                $"Entitástípus: {kind}");
         }
 
         private void EntityWindow_PreviewKeyDown(
-            object sender,
-            KeyEventArgs e)
+            object sender, KeyEventArgs e)
         {
             bool ctrl =
                 (Keyboard.Modifiers & ModifierKeys.Control)
@@ -1416,9 +1689,8 @@ namespace ThePixelRealmsEditor
 
             navigatingBack = true;
 
-            var menu = new MainWindow();
+            MainWindow menu = new();
             menu.Show();
-
             Close();
         }
 
@@ -1429,11 +1701,17 @@ namespace ThePixelRealmsEditor
         }
 
         private void EntityWindow_Closing(
-            object? sender,
-            CancelEventArgs e)
+            object? sender, CancelEventArgs e)
         {
             if (!navigatingBack && !ConfirmDiscard())
+            {
                 e.Cancel = true;
+                return;
+            }
+
+            animationTimer.Stop();
+            animationTimer.Tick -= AnimationTimer_Tick;
+            animationClock.Stop();
         }
     }
 }

@@ -11,89 +11,175 @@
 
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="35"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="48"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="29"/>
         </Grid.RowDefinitions>
 
-        <!-- MENU -->
-        <Menu Grid.Row="0"
-              Background="{StaticResource PanelBrush}"
-              Foreground="{StaticResource TextBrush}">
+        <!-- DARK MENU - SAME AS MAP EDITOR -->
+        <Border Grid.Row="0"
+                Background="#0D0F13"
+                BorderBrush="{StaticResource BorderBrush}"
+                BorderThickness="0,0,0,1">
 
-            <MenuItem Header="Fájl">
-                <MenuItem Header="Új entitás"
-                          InputGestureText="Ctrl+N"
-                          Click="NewEntity_Click"/>
-                <MenuItem Header="Entitás megnyitása"
-                          InputGestureText="Ctrl+O"
-                          Click="OpenEntity_Click"/>
-                <Separator/>
-                <MenuItem Header="Mentés"
-                          InputGestureText="Ctrl+S"
-                          Click="SaveEntity_Click"/>
-                <MenuItem Header="Mentés másként"
-                          InputGestureText="Ctrl+Shift+S"
-                          Click="SaveAsEntity_Click"/>
-                <Separator/>
-                <MenuItem Header="Vissza a főmenübe"
-                          Click="BackToMenu_Click"/>
-                <MenuItem Header="Kilépés"
-                          Click="ExitEditor_Click"/>
-            </MenuItem>
+            <Menu Background="#0D0F13" Foreground="#E8ECF2">
+                <Menu.Resources>
+                    <SolidColorBrush x:Key="{x:Static SystemColors.MenuBrushKey}"
+                                     Color="#20252E"/>
+                    <SolidColorBrush x:Key="{x:Static SystemColors.MenuTextBrushKey}"
+                                     Color="#E8ECF2"/>
+                    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}"
+                                     Color="#343C49"/>
+                    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}"
+                                     Color="#FFFFFF"/>
 
-            <MenuItem Header="Szerkesztés">
-                <MenuItem Header="Visszavonás"
-                          InputGestureText="Ctrl+Z"
-                          Click="Undo_Click"/>
-                <MenuItem Header="Újra"
-                          InputGestureText="Ctrl+Y"
-                          Click="Redo_Click"/>
-                <Separator/>
-                <MenuItem Header="Entitás átnevezése"
-                          Click="RenameEntity_Click"/>
-            </MenuItem>
+                    <Style TargetType="MenuItem">
+                        <Setter Property="Foreground" Value="#E8ECF2"/>
+                        <Setter Property="Background" Value="#20252E"/>
+                        <Setter Property="BorderBrush" Value="#343C49"/>
+                        <Setter Property="BorderThickness" Value="0"/>
+                        <Setter Property="Padding" Value="9,5"/>
+                        <Style.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter Property="Background" Value="#343C49"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
 
-            <MenuItem Header="Actionök">
-                <MenuItem Header="Action hozzáadása"
-                          Click="AddAction_Click"/>
-                <MenuItem Header="Egyéni Action-típus létrehozása"
-                          Click="AddCustomAction_Click"/>
-            </MenuItem>
-        </Menu>
+                    <Style x:Key="DarkDropdownItem"
+                           TargetType="MenuItem">
+                        <Setter Property="Foreground" Value="#E8ECF2"/>
+                        <Setter Property="Background" Value="#20252E"/>
+                        <Setter Property="BorderThickness" Value="0"/>
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="MenuItem">
+                                    <Border x:Name="ItemBorder"
+                                            Background="{TemplateBinding Background}"
+                                            BorderThickness="0"
+                                            Padding="13,7">
+                                        <Grid MinWidth="180">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <ContentPresenter ContentSource="Header"
+                                                              VerticalAlignment="Center"
+                                                              RecognizesAccessKey="True"/>
+                                            <TextBlock Grid.Column="1"
+                                                       Text="{TemplateBinding InputGestureText}"
+                                                       Foreground="#8994A5"
+                                                       Margin="24,0,0,0"
+                                                       VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsHighlighted" Value="True">
+                                            <Setter TargetName="ItemBorder"
+                                                    Property="Background"
+                                                    Value="#343C49"/>
+                                        </Trigger>
+                                        <Trigger Property="IsEnabled" Value="False">
+                                            <Setter Property="Opacity" Value="0.4"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+
+                    <Style TargetType="Separator">
+                        <Setter Property="Background" Value="#363D49"/>
+                    </Style>
+                </Menu.Resources>
+
+                <MenuItem Header="Fájl">
+                    <MenuItem Header="Új entitás"
+                              Style="{StaticResource DarkDropdownItem}"
+                              InputGestureText="Ctrl+N"
+                              Click="NewEntity_Click"/>
+                    <MenuItem Header="Entitás megnyitása"
+                              Style="{StaticResource DarkDropdownItem}"
+                              InputGestureText="Ctrl+O"
+                              Click="OpenEntity_Click"/>
+                    <Separator/>
+                    <MenuItem Header="Mentés"
+                              Style="{StaticResource DarkDropdownItem}"
+                              InputGestureText="Ctrl+S"
+                              Click="SaveEntity_Click"/>
+                    <MenuItem Header="Mentés másként"
+                              Style="{StaticResource DarkDropdownItem}"
+                              InputGestureText="Ctrl+Shift+S"
+                              Click="SaveAsEntity_Click"/>
+                    <Separator/>
+                    <MenuItem Header="Vissza a főmenübe"
+                              Style="{StaticResource DarkDropdownItem}"
+                              Click="BackToMenu_Click"/>
+                    <MenuItem Header="Kilépés"
+                              Style="{StaticResource DarkDropdownItem}"
+                              Click="ExitEditor_Click"/>
+                </MenuItem>
+
+                <MenuItem Header="Szerkesztés">
+                    <MenuItem Header="Visszavonás"
+                              Style="{StaticResource DarkDropdownItem}"
+                              InputGestureText="Ctrl+Z"
+                              Click="Undo_Click"/>
+                    <MenuItem Header="Újra"
+                              Style="{StaticResource DarkDropdownItem}"
+                              InputGestureText="Ctrl+Y"
+                              Click="Redo_Click"/>
+                    <Separator/>
+                    <MenuItem Header="Entitás átnevezése"
+                              Style="{StaticResource DarkDropdownItem}"
+                              Click="RenameEntity_Click"/>
+                </MenuItem>
+
+                <MenuItem Header="Actions">
+                    <MenuItem Header="Action hozzáadása"
+                              Style="{StaticResource DarkDropdownItem}"
+                              Click="AddAction_Click"/>
+                    <MenuItem Header="Egyéni Action-típus létrehozása"
+                              Style="{StaticResource DarkDropdownItem}"
+                              Click="AddCustomAction_Click"/>
+                </MenuItem>
+            </Menu>
+        </Border>
 
         <!-- TOOLBAR -->
         <Border Grid.Row="1"
                 Background="{StaticResource PanelBrush}"
                 BorderBrush="{StaticResource BorderBrush}"
-                BorderThickness="0,0,0,1">
-
-            <DockPanel Margin="12,7">
+                BorderThickness="0,0,0,1"
+                Padding="8">
+            <DockPanel LastChildFill="True">
                 <StackPanel Orientation="Horizontal"
-                            DockPanel.Dock="Left">
-
+                            DockPanel.Dock="Left"
+                            VerticalAlignment="Center">
                     <Button Content="↶"
-                            FontSize="18"
-                            Width="37"
+                            FontSize="17"
+                            Width="34" Height="28"
                             Padding="0"
-                            ToolTip="Visszavonás (Ctrl+Z)"
+                            Margin="0,0,5,0"
+                            ToolTip="Visszavonás"
                             Click="Undo_Click"/>
-
                     <Button Content="↷"
-                            FontSize="18"
-                            Width="37"
-                            Margin="6,0,16,0"
+                            FontSize="17"
+                            Width="34" Height="28"
                             Padding="0"
-                            ToolTip="Újra (Ctrl+Y)"
+                            Margin="0,0,14,0"
+                            ToolTip="Újra"
                             Click="Redo_Click"/>
-
+                    <Border Width="1"
+                            Background="{StaticResource BorderBrush}"
+                            Margin="0,2,14,2"/>
                     <TextBlock Text="ENTITÁS:"
                                VerticalAlignment="Center"
                                FontSize="11"
                                Foreground="{StaticResource MutedTextBrush}"
                                Margin="0,0,10,0"/>
-
                     <TextBlock x:Name="EntityNameText"
                                Text="Nincs megnyitott entitás"
                                VerticalAlignment="Center"
@@ -119,7 +205,6 @@
                     BorderBrush="{StaticResource BorderBrush}"
                     BorderThickness="1"
                     CornerRadius="5">
-
                 <Grid Margin="12">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -129,11 +214,10 @@
 
                     <StackPanel Grid.Row="0"
                                 Margin="0,0,0,12">
-                        <TextBlock Text="ACTIONÖK"
+                        <TextBlock Text="ACTIONS"
                                    FontSize="15"
                                    FontWeight="Bold"
                                    Foreground="{StaticResource AccentBrush}"/>
-
                         <TextBlock Text="Az entitás animációi"
                                    FontSize="11"
                                    Margin="0,4,0,0"
@@ -149,18 +233,14 @@
                              Padding="4"
                              SelectionChanged="ActionListBox_SelectionChanged"/>
 
-                    <StackPanel Grid.Row="2"
-                                Margin="0,12,0,0">
-
+                    <StackPanel Grid.Row="2" Margin="0,12,0,0">
                         <Button x:Name="AddActionButton"
                                 Content="+ Action hozzáadása"
                                 Click="AddAction_Click"/>
-
                         <Button x:Name="EditActionButton"
                                 Content="Képkockák szerkesztése"
                                 Margin="0,7,0,0"
                                 Click="EditAction_Click"/>
-
                         <Button x:Name="DeleteActionButton"
                                 Content="Action törlése"
                                 Margin="0,7,0,0"
@@ -169,13 +249,12 @@
                 </Grid>
             </Border>
 
-            <!-- CENTER: PREVIEW -->
+            <!-- CENTER: ANIMATION PLAYER -->
             <Border Grid.Column="2"
                     Background="{StaticResource PanelBrush}"
                     BorderBrush="{StaticResource BorderBrush}"
                     BorderThickness="1"
                     CornerRadius="5">
-
                 <Grid Margin="16">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -185,14 +264,14 @@
 
                     <StackPanel Grid.Row="0">
                         <TextBlock x:Name="PreviewActionTitle"
-                                   Text="ELŐNÉZET"
+                                   Text="IDLE"
                                    FontSize="16"
                                    FontWeight="Bold"
                                    Foreground="{StaticResource AccentBrush}"/>
-
-                        <TextBlock Text="A kiválasztott Action első képkockája"
-                                   Margin="0,5,0,0"
+                        <TextBlock x:Name="PreviewPlaybackStatus"
+                                   Text="Animáció előnézet"
                                    FontSize="11"
+                                   Margin="0,5,0,0"
                                    Foreground="{StaticResource MutedTextBrush}"/>
                     </StackPanel>
 
@@ -203,39 +282,90 @@
                             BorderThickness="1"
                             CornerRadius="5"
                             ClipToBounds="True">
-
                         <Grid>
                             <TextBlock x:Name="PreviewPlaceholder"
                                        Text="Nincs megjeleníthető képkocka"
                                        TextAlignment="Center"
                                        VerticalAlignment="Center"
                                        HorizontalAlignment="Center"
-                                       TextWrapping="Wrap"
                                        Foreground="{StaticResource MutedTextBrush}"/>
 
                             <Image x:Name="PreviewImage"
                                    Stretch="Uniform"
                                    Margin="24"
-                                   RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+                                   RenderTransformOrigin="0.5,0.5"
+                                   RenderOptions.BitmapScalingMode="NearestNeighbor">
+                                <Image.RenderTransform>
+                                    <ScaleTransform x:Name="PreviewDirectionTransform"
+                                                    ScaleX="1"
+                                                    ScaleY="1"/>
+                                </Image.RenderTransform>
+                            </Image>
                         </Grid>
                     </Border>
 
                     <Grid Grid.Row="2">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
 
-                        <TextBlock x:Name="PreviewFrameCountText"
-                                   Text="0 képkocka"
-                                   VerticalAlignment="Center"
-                                   Foreground="{StaticResource MutedTextBrush}"/>
+                        <StackPanel Orientation="Horizontal"
+                                    HorizontalAlignment="Center"
+                                    Margin="0,0,0,15">
 
-                        <Button Grid.Column="1"
-                                x:Name="PreviewEditButton"
-                                Content="Action szerkesztése"
-                                Width="175"
-                                Click="EditAction_Click"/>
+                            <Button x:Name="FaceLeftButton"
+                                    Content="←"
+                                    FontSize="23"
+                                    FontWeight="Bold"
+                                    Padding="0"
+                                    Width="52" Height="38"
+                                    ToolTip="Balra nézzen"
+                                    Click="FaceLeft_Click"/>
+
+                            <TextBlock x:Name="FacingDirectionText"
+                                       Text="Jobbra néz"
+                                       MinWidth="100"
+                                       TextAlignment="Center"
+                                       VerticalAlignment="Center"
+                                       Foreground="{StaticResource MutedTextBrush}"/>
+
+                            <Button x:Name="FaceRightButton"
+                                    Content="→"
+                                    FontSize="23"
+                                    FontWeight="Bold"
+                                    Padding="0"
+                                    Width="52" Height="38"
+                                    ToolTip="Jobbra nézzen"
+                                    Click="FaceRight_Click"/>
+
+                            <Border Width="1"
+                                    Background="{StaticResource BorderBrush}"
+                                    Margin="18,3"/>
+
+                            <Button x:Name="PreviewPlayPauseButton"
+                                    Content="⏸ Pause"
+                                    Width="115" Height="38"
+                                    Click="PreviewPlayPause_Click"/>
+                        </StackPanel>
+
+                        <Grid Grid.Row="1">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock x:Name="PreviewFrameCountText"
+                                       Text="0 képkocka"
+                                       VerticalAlignment="Center"
+                                       Foreground="{StaticResource MutedTextBrush}"/>
+
+                            <Button x:Name="PreviewEditButton"
+                                    Grid.Column="1"
+                                    Content="Action szerkesztése"
+                                    Width="175"
+                                    Click="EditAction_Click"/>
+                        </Grid>
                     </Grid>
                 </Grid>
             </Border>
@@ -259,11 +389,9 @@
                                    FontSize="15"
                                    FontWeight="Bold"
                                    Foreground="{StaticResource AccentBrush}"/>
-
                         <TextBlock Text="Entitás típusa"
                                    Foreground="{StaticResource MutedTextBrush}"
                                    Margin="0,14,0,5"/>
-
                         <ComboBox x:Name="EntityKindCombo"
                                   SelectionChanged="EntityKindCombo_SelectionChanged">
                             <ComboBoxItem Content="Enemy"/>
@@ -274,7 +402,6 @@
                     <ScrollViewer Grid.Row="1"
                                   VerticalScrollBarVisibility="Auto"
                                   HorizontalScrollBarVisibility="Disabled">
-
                         <StackPanel x:Name="InspectorFields"
                                     Margin="0,0,8,8"/>
                     </ScrollViewer>
@@ -293,7 +420,6 @@
                 Background="#0D0F13"
                 BorderBrush="{StaticResource BorderBrush}"
                 BorderThickness="0,1,0,0">
-
             <TextBlock x:Name="StatusText"
                        Text="Entity Editor"
                        FontSize="11"
