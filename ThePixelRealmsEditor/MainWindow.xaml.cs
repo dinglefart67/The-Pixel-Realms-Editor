@@ -1,4 +1,5 @@
-﻿using System.Windows;
+﻿
+using System.Windows;
 
 namespace ThePixelRealmsEditor
 {
@@ -9,7 +10,9 @@ namespace ThePixelRealmsEditor
             InitializeComponent();
         }
 
-        private void MapEditorButton_Click(object sender, RoutedEventArgs e)
+        private void MapEditorButton_Click(
+            object sender,
+            RoutedEventArgs e)
         {
             MapEditorWindow mapEditor = new MapEditorWindow();
 
@@ -18,13 +21,16 @@ namespace ThePixelRealmsEditor
             Close();
         }
 
-        private void EntityEditorButton_Click(object sender, RoutedEventArgs e)
+        private void EntityEditorButton_Click(
+            object sender,
+            RoutedEventArgs e)
         {
-            MessageBox.Show(
-                "Az entitásszerkesztő még nincs implementálva.",
-                "The Pixel Realms Editor",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
+            EntityEditorWindow entityEditor =
+                new EntityEditorWindow();
+
+            entityEditor.Show();
+
+            Close();
         }
     }
 }
